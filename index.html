@@ -25,7 +25,7 @@
     #trainer { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     .bar { display: flex; justify-content: space-between; align-items: center; padding: 1rem; }
     #single { display: grid; place-items: center; padding: 1rem; cursor: pointer; user-select: none; }
-    #single[hidden], #all[hidden] { display: none; }
+    #single[hidden], #all[hidden], #practice[hidden] { display: none; }
     /* Обращение — подстрочный индекс справа от названия тональности. */
     .card-symbol { display: inline-flex; align-items: flex-end; gap: .08em; line-height: .8; }
     .key { font-family: Georgia, "Times New Roman", serif; font-size: clamp(9rem, 38vw, 25rem); letter-spacing: -.06em; }
@@ -36,9 +36,16 @@
     .mini-card { min-height: 125px; display: grid; place-items: center; background: white; border: 1px solid #d9deea; border-radius: 14px; }
     .mini-card .key { font-size: clamp(3.9rem, 11vw, 7rem); }
     .mini-card .figures { font-size: clamp(1.95rem, 5.5vw, 3.5rem); }
+    #practice { padding: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; align-content: start; cursor: pointer; }
+    .practice-card { min-height: 160px; display: grid; place-items: center; padding: .75rem; background: white; border: 2px solid #d9deea; border-radius: 14px; }
+    .practice-card:hover { background: #f8faff; }
+    .practice-card.is-difficult { background: #fff1f2; border-color: #e11d48; box-shadow: 0 0 0 2px #fecdd3; }
+    .practice-card .key { font-size: clamp(4.4rem, 13vw, 8rem); }
+    .practice-card .figures { font-size: clamp(2.2rem, 6.5vw, 4rem); }
+    .secondary { margin-left: .5rem; }
     .done { text-align: center; }
     .done h2 { font-size: 2rem; }
-    @media (max-width: 420px) { .page { width: min(100% - 1.25rem, 880px); padding-top: 1.25rem; } #all { grid-template-columns: repeat(4, 1fr); gap: .45rem; padding: .65rem; } .mini-card { min-height: 82px; border-radius: 9px; } .mini-card .key { font-size: 2.9rem; } .mini-card .figures { font-size: 1.45rem; } }
+    @media (max-width: 420px) { .page { width: min(100% - 1.25rem, 880px); padding-top: 1.25rem; } #all { grid-template-columns: repeat(4, 1fr); gap: .45rem; padding: .65rem; } .mini-card { min-height: 82px; border-radius: 9px; } .mini-card .key { font-size: 2.9rem; } .mini-card .figures { font-size: 1.45rem; } #practice { grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: .65rem; } .practice-card { min-height: 125px; border-radius: 10px; } .practice-card .key { font-size: 3.4rem; } .practice-card .figures { font-size: 1.7rem; } }
   </style>
 </head>
 <body>
@@ -50,18 +57,18 @@
     </fieldset>
     <fieldset><legend>Обращения</legend><div class="choices" id="inversions"></div></fieldset>
     <fieldset><legend>Отображение</legend>
-      <div class="mode"><label><input type="radio" name="view" value="single" checked> По одной карточке</label><label><input type="radio" name="view" value="all"> Все сразу</label></div>
+      <div class="mode"><label><input type="radio" name="view" value="single" checked> По одной карточке</label><label><input type="radio" name="view" value="all"> Все сразу</label><label><input type="radio" name="view" value="practice"> Тренажёр</label></div>
       <p class="hint"><input id="infinite" type="checkbox"> <label for="infinite">Бесконечный режим</label> <span id="infinite-note">(доступен только при показе по одной карточке)</span></p>
     </fieldset>
     <button type="button" class="primary" id="start">Начать</button>
   </main>
   <main id="trainer" hidden>
     <div class="bar"><button type="button" id="back">Настройки</button><strong id="progress"></strong></div>
-    <section id="single"></section><section id="all" hidden></section>
+    <section id="single"></section><section id="all" hidden></section><section id="practice" hidden></section>
     <div class="instruction" id="instruction"></div>
   </main>
   <script>
-    const KEYS = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯/G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+    const KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
     const WHITE = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
     const INVERSIONS = [{ id: '53', label: '5/3', figures: ['5','3'] }, { id: '6', label: '6', figures: ['6'] }, { id: '64', label: '6/4', figures: ['6','4'] }];
     const keysNode = document.querySelector('#keys'), inversionsNode = document.querySelector('#inversions');
@@ -76,7 +83,9 @@
       const single = document.querySelector('[name=view]:checked').value === 'single'; infinite.disabled = !single; infiniteNote.hidden = single; if (!single) infinite.checked = false;
     }));
     let deck = [], position = 0, endless = false;
+    let practiceDeck = [], practiceBaseCards = [], practicePosition = 0, practiceSource = 'normal', difficultCards = new Set();
     const symbol = card => `<div class="card-symbol"><span class="key">${card.key}</span><span class="figures${card.figures.length === 1 ? ' single' : ''}">${card.figures.map(n => `<span>${n}</span>`).join('')}</span></div>`;
+    const cardId = card => `${card.key}|${card.id}`;
     const shuffle = items => [...items].sort(() => Math.random() - .5);
     function selectedCards() {
       const selectedKeys = [...document.querySelectorAll('[name=key]:checked')].map(x => x.value);
@@ -90,15 +99,61 @@
       host.innerHTML = symbol(deck[position]); progress.textContent = endless ? 'Бесконечный режим' : `${position + 1} из ${deck.length}`;
     }
     function next() { if (!document.querySelector('#trainer').hidden && !document.querySelector('#single').hidden && !(position >= deck.length && !endless)) { position++; showSingle(); } }
+    function practiceProgress() {
+      return `${Math.min(practicePosition + 6, practiceDeck.length)} из ${practiceDeck.length} · сложных: ${difficultCards.size}`;
+    }
+    function showPracticeDone() {
+      const host = document.querySelector('#practice');
+      document.querySelector('#progress').textContent = '';
+      if (practiceSource === 'difficult') {
+        host.innerHTML = `<div class="done"><h2>Сложные карточки пройдены</h2><p>Осталось сложных: ${difficultCards.size}</p>${difficultCards.size ? '<button type="button" class="primary" id="repeat-difficult">Перемешать сложные</button>' : ''}<button type="button" class="secondary" id="practice-settings">В настройки</button></div>`;
+        document.querySelector('#repeat-difficult')?.addEventListener('click', () => startPractice(practiceBaseCards.filter(card => difficultCards.has(cardId(card))), 'difficult'));
+      } else {
+        host.innerHTML = `<div class="done"><h2>Все карточки пройдены</h2><p>Сложных: ${difficultCards.size}</p>${difficultCards.size ? '<button type="button" class="primary" id="train-difficult">Тренировать сложные</button>' : ''}<button type="button" class="secondary" id="repeat-practice">Перемешать и пройти снова</button><button type="button" class="secondary" id="practice-settings">В настройки</button></div>`;
+        document.querySelector('#train-difficult')?.addEventListener('click', () => startPractice(practiceBaseCards.filter(card => difficultCards.has(cardId(card))), 'difficult'));
+        document.querySelector('#repeat-practice').addEventListener('click', () => startPractice(practiceBaseCards, 'normal'));
+      }
+      document.querySelector('#practice-settings').addEventListener('click', () => document.querySelector('#back').click());
+      document.querySelector('#instruction').textContent = '';
+    }
+    function showPracticeBatch() {
+      const host = document.querySelector('#practice');
+      if (practicePosition >= practiceDeck.length) { showPracticeDone(); return; }
+      const batch = practiceDeck.slice(practicePosition, practicePosition + 6);
+      host.innerHTML = batch.map(card => `<button type="button" class="practice-card${difficultCards.has(cardId(card)) ? ' is-difficult' : ''}" data-card-id="${cardId(card)}" aria-pressed="${difficultCards.has(cardId(card))}">${symbol(card)}</button>`).join('');
+      document.querySelector('#progress').textContent = practiceProgress();
+      document.querySelector('#instruction').innerHTML = practiceSource === 'difficult'
+        ? 'Красные — пока сложные. Нажмите карточку, если она больше не сложная. <button type="button" id="next-batch" class="primary">Следующие карточки</button>'
+        : 'Нажмите карточку, чтобы отметить её как сложную. <button type="button" id="next-batch" class="primary">Следующие карточки</button>';
+      document.querySelector('#next-batch').addEventListener('click', nextPracticeBatch);
+    }
+    function startPractice(cards, source = 'normal') {
+      practiceSource = source;
+      if (source === 'normal') { practiceBaseCards = [...cards]; difficultCards = new Set(); }
+      practiceDeck = shuffle(cards); practicePosition = 0; showPracticeBatch();
+    }
+    function nextPracticeBatch() { practicePosition += 6; showPracticeBatch(); }
+    document.querySelector('#practice').addEventListener('click', event => {
+      const cardNode = event.target.closest('.practice-card');
+      // Переход по пустому месту работает только при нажатии на фон секции,
+      // а не на кнопки внутри финального экрана.
+      if (!cardNode) { if (event.target === event.currentTarget) nextPracticeBatch(); return; }
+      const id = cardNode.dataset.cardId;
+      difficultCards.has(id) ? difficultCards.delete(id) : difficultCards.add(id);
+      cardNode.classList.toggle('is-difficult', difficultCards.has(id));
+      cardNode.setAttribute('aria-pressed', difficultCards.has(id));
+      document.querySelector('#progress').textContent = practiceProgress();
+    });
     document.querySelector('#start').addEventListener('click', () => {
       const cards = selectedCards(); if (!cards.length) return alert('Выберите хотя бы одну тональность и одно обращение.');
       const view = document.querySelector('[name=view]:checked').value; deck = shuffle(cards); position = 0; endless = infinite.checked;
       document.querySelector('#setup').hidden = true; document.querySelector('#trainer').hidden = false;
-      const singleHost = document.querySelector('#single'), allHost = document.querySelector('#all');
-      singleHost.hidden = view !== 'single'; allHost.hidden = view !== 'all';
+      const singleHost = document.querySelector('#single'), allHost = document.querySelector('#all'), practiceHost = document.querySelector('#practice');
+      singleHost.hidden = view !== 'single'; allHost.hidden = view !== 'all'; practiceHost.hidden = view !== 'practice';
       document.querySelector('#instruction').textContent = view === 'single' ? 'Нажмите на экран или Space, чтобы перейти к следующей карточке.' : `${deck.length} карточек`;
-      if (view === 'single') { allHost.innerHTML = ''; showSingle(); }
-      else { singleHost.innerHTML = ''; allHost.innerHTML = deck.map(card => `<div class="mini-card">${symbol(card)}</div>`).join(''); document.querySelector('#progress').textContent = ''; }
+      if (view === 'single') { allHost.innerHTML = ''; practiceHost.innerHTML = ''; showSingle(); }
+      else if (view === 'all') { singleHost.innerHTML = ''; practiceHost.innerHTML = ''; allHost.innerHTML = deck.map(card => `<div class="mini-card">${symbol(card)}</div>`).join(''); document.querySelector('#progress').textContent = ''; }
+      else { allHost.innerHTML = ''; singleHost.innerHTML = ''; startPractice(cards); }
     });
     document.querySelector('#single').addEventListener('click', next);
     document.addEventListener('keydown', event => { if (event.code === 'Space') { event.preventDefault(); next(); } });
